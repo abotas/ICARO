@@ -6,7 +6,7 @@ import sys
 import numpy as np
 
 from matplotlib.figure import Figure
-import invisible_cities.core.mpl_functions import set_plot_labels
+from invisible_cities.core.mpl_functions import set_plot_labels
 from invisible_cities.core.core_functions import define_window
 from invisible_cities.core.core_functions import loc_elem_1d
 from   invisible_cities.core.system_of_units_c import units
@@ -148,75 +148,3 @@ def plot_s12(S12):
             E = S12[i][1]
             ax1.plot(t, E)
     return fig
-
-
-
-
-qtCreatorFile = "event_maps.ui" # Enter file here.
-Ui_MainWindow, QMainWindow = loadUiType(qtCreatorFile)
-
-class Main(QMainWindow, Ui_MainWindow):
-    def __init__(self, ):
-        super(Main, self).__init__()
-        self.setupUi(self)
-        self.fig_dict = {}
-
-        self.mplfigs.itemClicked.connect(self.change_figure)
-
-        fig = Figure()
-        self.add_mpl(fig)
-
-    def add_figure(self, name, fig):
-        test_key = self.fig_dict.pop(name, None)
-        self.fig_dict[name] = fig
-        if not test_key: # key not in dict
-            self.mplfigs.addItem(name)
-
-    def change_figure(self, item):
-        text = item.text()
-        self.rm_mpl()
-        self.add_mpl(self.fig_dict[text])
-
-    def add_mpl(self, fig):
-        self.canvas = FigureCanvas(fig)
-        self.mplvl.addWidget(self.canvas)
-        self.canvas.draw()
-        self.toolbar = NavigationToolbar(self.canvas,
-                self.mplwindow, coordinates=True)
-        self.mplvl.addWidget(self.toolbar)
-
-    def rm_mpl(self,):
-        self.mplvl.removeWidget(self.canvas)
-        self.canvas.close()
-        self.mplvl.removeWidget(self.toolbar)
-        self.toolbar.close()
-
-
-
-if __name__ == '__main__':
-    import sys
-    #from PyQt5 import QtGui
-    import numpy as np
-
-    fig1 = Figure()
-    ax1f1 = fig1.add_subplot(111)
-    ax1f1.plot(np.random.rand(5))
-
-    fig2 = Figure()
-    ax1f2 = fig2.add_subplot(121)
-    ax1f2.plot(np.random.rand(5))
-    ax2f2 = fig2.add_subplot(122)
-    ax2f2.plot(np.random.rand(10))
-
-    fig3 = Figure()
-    ax1f3 = fig3.add_subplot(111)
-    ax1f3.pcolormesh(np.random.rand(20,20))
-
-    app = QtWidgets.QApplication(sys.argv)
-    #app = QtGui.QApplication(sys.argv)
-    main = Main()
-    main.addfig('One plot', fig1)
-    main.addfig('Two plots', fig2)
-    main.addfig('Pcolormesh', fig3)
-    main.show()
-    sys.exit(app.exec_())

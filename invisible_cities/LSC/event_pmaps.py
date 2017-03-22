@@ -4,9 +4,22 @@ Compute PMAPS and PMAP features
 import sys
 import numpy as np
 
+from invisible_cities.database import load_db
+import invisible_cities.sierpe.blr as blr
+import invisible_cities.reco.peak_functions_c as cpf
+import invisible_cities.reco.peak_functions as pf
 from   invisible_cities.core.system_of_units_c import units
 from invisible_cities.core.core_functions import loc_elem_1d
+from invisible_cities.reco.params import S12Params, ThresholdParams,\
+                                         CalibratedSum, PMaps
 from collections import namedtuple
+from enum import Enum
+
+EventPmaps = Enum('EventPmaps', 'not_s1 not_s2 s1_not_1 s2_not_1')
+DeconvParams = namedtuple('DeconvParams', 'n_baseline thr_trigger')
+S12Features = namedtuple('S12Features', 's1f s2f')
+CalibVectors = namedtuple('CalibVectors',
+    'channel_id coeff_blr coeff_c adc_to_pes_pmt adc_to_pes_sipm pmt_active')
 
 class S12F:
     """
@@ -18,6 +31,9 @@ class S12F:
     """
 
     def __init__(self):
+        """Define event lists."""
+        self.event = []
+        self.peak = []
         self.w    = []
         self.tmin = []
         self.tmax = []
@@ -25,8 +41,11 @@ class S12F:
         self.emax = []
         self.etot = []
         self.er   = []
+        self.nm   = [] # number of matches
 
-    def add_features(self, S12, peak_number=0):
+    def add_features(self, event, S12, peak_number=0):
+        """Add event features."""
+
         t = S12[peak_number][0]
         E = S12[peak_number][1]
 
@@ -40,158 +59,209 @@ class S12F:
         er = 9e+9
         if etot > 0:
             er = emax/etot
-
+        self.event.append(event)
+        self.peak.append(peak_number)
         self.w.append(tmax - tmin)
         self.tmin.append(tmin)
         self.tmax.append(tmax)
         self.tpeak.append(tpeak)
         self.emax.append(emax)
         self.etot.append(etot)
-        self.etot.append(er)
+        self.er.append(er)
+
+    def add_number_of_matches(self, nm):
+        self.nm.append(nm)
+
+    def __str__(self):
+        w = """ (event  ={}
+                 peak = {}
+                 width (mus) = {}
+                 tmin  (mus) = {}
+                 tmax  (mus) = {}
+                 tpeak (mus) = {}
+                 etot (pes)  = {}
+                 epeak (pes) = {}
+                 er          = {})
+        """.format(self.event, self.peak,
+                   np.array(self.width)/units.mus,
+                   np.array(self.tmin)/units.mus,
+                   np.array(self.tmax)/units.mus,
+                   np.array(self.tpeak)/units.mus,
+                   np.array(self.etot),
+                   np.array(self.epeak),
+                   np.array(self.er)
+                   )
+        return w
+    def __repr__(self):
+        return self.__str__()
 
 
-def pmt_calib_vectors():
-    """Provisional fix for calib vectors"""
-    channel_id = np.array([0,1,4,5,8,18,22,23,26,27,31])
-    coeff_blr = np.array([1.61,1.62,1.61,1.61,1.61,
-                      0.8,0.8,0.8,0.8,0.8,1.60,
-                      1.0]) * 0.001
-    coeff_c = np.array([2.94,2.75,3.09,2.81,2.88,
-                    1.,1.,1.,1.,1.,2.76,
-                    1.0]) * 1e-6
-    adc_to_pes = np.array([25.17,22.15,33.57,23.88,21.55,
-                       26.49,25.39,27.74,23.78,20.83,26.56,
-                       0.])
-    pmt_active = list(range(11))
+def compare_S1(S1, PMT_S1, peak=0, tol=0.5*units.mus):
+    """Compare sum S1 with S1 in individual PMT
 
-    CalibVectors = namedtuple('CalibVectors',
-                    'channel_id coeff_blr coeff_c adc_to_pes pmt_active')
-    return CalibVectors(channel_id = channel_id,
-                        coeff_blr  = coeff_blr,
-                        coeff_c    = coeff_c,
-                        adc_to_pes = adc_to_pes,
-                        pmt_active  = pmt_active)
-
-
-def event_pmaps(P, pmtrwf, sipmrwf, s1par, thr, s12f, event=0):
-    """Compute Event pmaps and pmaps features.
     input:
-    P           : CalibVectors named tuple.
-                  ('CalibVectors',
-                  'channel_id coeff_blr coeff_c adc_to_pes pmt_active')
-    pmtrwf      : raw waveform for pmts
-    sipmrwf     : raw waveform for SiPMs
-    thr         : threshold for PMAP searches.
-                  ('ThresholdParams',
-                  'thr_s1 thr_s2 thr_MAU thr_sipm thr_SIPM')
-    s12f        : instance of a S12F class (s12 features)
-    event       : event number
+    S1 computed with the sum
+    PMT_S1 computed with individual PMTs.
+    tol is the matching tolerance.
+
+    Return number of matches
+
+    """
+    n_match_s1 = 0
+    t = S1[peak][0]
+    E = S1[peak][1]
+    for pmt in PMT_S1:
+        if len (PMT_S1[pmt]) > 0:
+            for peak, (t2,E2) in PMT_S1[pmt].items():
+                diff = abs(t2[0] - t[0])
+                if diff < tol:
+                    n_match_s1 +=1
+                    break  # if one peak is matched look no further
+    return n_match_s1
+
+
+def print_s12(S12):
+    """Print peaks of input S12.
+
+    S12 is a dictionary
+    S12[i] for i in keys() are the S12 peaks
+    """
+    print('number of peaks = {}'.format(len(S12)))
+    for i in S12:
+        print('S12 number = {}, samples = {} sum in pes ={}'
+              .format(i, len(S12[i][0]), np.sum(S12[i][1])))
+        print('time vector (mus) = {}'.format(S12[i][0]/units.mus))
+        print('energy vector (pes) = {}'.format(S12[i][1]/units.pes))
+
+def print_s2si(S2Si):
+    """Scan the S2Si objects."""
+    for peak, sipm_set in S2Si.items():
+        print('S2Si for peak number = {}'.format(peak))
+        for sipm, e_array in sipm_set.items():
+            print('sipm number = {}, energy = {}'.format(sipm,
+                                                         np.sum(e_array)))
+def print_s12f(s12f):
+    """Print the """
+
+class EventPmaps:
+    """Compute event pmaps
+
+    calib_vectors : named tuple.
+                    ('CalibVectors',
+                    'channel_id coeff_blr coeff_c adc_to_pes pmt_active')
+
+    deconv_params : named tuple.
+                    ('DeconvParams', 'n_baseline thr_trigger')
+
     """
 
-    RWF = pmtrwf[event]
-    CWF                  = blr.deconv_pmt(        RWF, P.coeff_c, P.coeff_blr,
-                                                  n_baseline=48000,
-                                                  thr_trigger=5)
+    def __init__(self, pmtrwf, sipmrwf,
+                 s1par, s2par, thr,
+                 verbose=True):
+        """
+        input:
 
-    CAL_PMT, CAL_PMT_MAU = cpf.calibrated_pmt_mau(CWF,
-                                                  P.adc_to_pes,
-                                                  pmt_active = P.pmt_active,
-                                                  n_MAU = 100,
-                                                  thr_MAU =  3)
-    csum, csum_mau       = cpf.calibrated_pmt_sum(CWF,
-                                                  P.adc_to_pes,
-                                                  P.pmt_active)
+        pmtrwf        : raw waveform for pmts
+        sipmrwf       : raw waveform for SiPMs
+        s1par, s2par  : named tuples
+                            ('S12Params' , 'tmin tmax stride lmin lmax rebin')
+        thr           : named tuple.
+                          ('ThresholdParams',
+                          'thr_s1 thr_s2 thr_MAU thr_sipm thr_SIPM')
+        verbose       : to make it talk.
+        """
+        self._calib_vectors()
+        self.pmtrwf        = pmtrwf
+        self.sipmrwf       = sipmrwf
+        self.D             = DeconvParams(n_baseline = 48000,
+                                          thr_trigger = 5)
+        self.s1par         = s1par
+        self.s2par         = s2par
+        self.thr           = thr
 
-    s1_ene, s1_indx      = cpf.wfzs(              csum_mau,
-                                                  threshold=thr.thr_s1)
-    S1                   =  cpf.find_S12(         s1_ene,
-                                                  s1_indx,
-                                                  **s1par._asdict())
-    for i in S1:
-        add_features(self, S12, peak_number=0)
-        print('S1 number {}'.format(i))
-        s1f = features_s12(S1[i])
-        print('S1 features = {}'.format(s1f))
-        t = S1[i][0]
-        tmin = t[0] - 100*units.ns
-        tmax = t[-1] + 100*units.ns
+        # instances of s12fF
+        self.s1f = S12F()
+        self.s2f = S12F()
+        self.verbose = verbose
 
-        #print('S1 match region: [tmin:tmax] (mus) = {}:{}'.format(tmin/units.mus,tmax/units.mus))
-        s1par_PMT = S12Params(tmin=tmin, tmax=tmax, lmin=3, lmax=20, stride=4, rebin=False)
-
-        PMT_S1 = {}
-        for pmt in P.pmt_active:
-            s1_ene, s1_indx = cpf.wfzs(CAL_PMT_MAU[pmt], threshold=0.1)
-            PMT_S1[pmt] = cpf.find_S12(s1_ene, s1_indx, **s1par_PMT._asdict())
-        nm = compare_S1(S1[i], PMT_S1)
-        print('number of PMT matches = {}'.format(nm))
-
-    s2_par = S12Params(tmin=640*units.mus, tmax=800*units.mus, stride=40,
-    lmin=80, lmax=20000, rebin=True)
-    s2_ene, s2_indx = cpf.wfzs(csum, threshold=1.0)
-    S2    = cpf.find_S12(s2_ene, s2_indx, **s2_par._asdict())
-
-    print_s12(S2)
-    if len(S2) == 0:
-        return 0
-
-    s2f = features_s12(S2[0])
-    print('S2 features = {}'.format(s2f))
-    t = S2[0][0]
-    tmin = t[-1] + 1*units.mus
-    print('S1p search starts at {}'.format(tmin))
-    s1p_params = S12Params(tmin=tmin, tmax=1300*units.mus, stride=4, lmin=4,
-     lmax=20, rebin=False)
-    s1_ene, s1_indx = cpf.wfzs(csum_mau, threshold=0.1)
-    S1p =  cpf.find_S12(s1_ene, s1_indx, **s1p_params._asdict())
-    S12t, S12l, S12e = scan_s12(S1p)
-
-    if(len(S1) == 1 and len(S2) == 1):
-        dt = s2f.tpeak - s1f.tpeak
-
-        print('drif time = {} mus'.format(dt/units.mus))
-
-    print('***S2Si****')
-    sipm = cpf.signal_sipm(sipmrwf[event], adc_to_pes_sipm, thr=3.5*units.pes, n_MAU=100)
-    SIPM = cpf.select_sipm(sipm)
-    S2Si = pf.sipm_s2_dict(SIPM, S2, thr=30*units.pes)
+    @property
+    def calib_vectors(self):
+        return self.P
 
 
-    main.add_figure('RWF', plot_pmt_waveforms(RWF, zoom=False, window_size=10000))
-    main.add_figure('CWF_vs_time_mus',
-                plot_pmt_signals_vs_time_mus(CWF,
-                                             P.pmt_active,
-                                             t_min      =    0,
-                                             t_max      = 1200,
-                                             signal_min =    -5,
-                                             signal_max =  200))
-    main.add_figure('Calibrated_PMTs',
-                plot_pmt_signals_vs_time_mus(CAL_PMT,
-                                             P.pmt_active,
-                                             t_min      = 400,
-                                             t_max      = 800,
-                                             signal_min =  -2,
-                                             signal_max =  10))
+    def _calib_vectors(self):
+        """Provisional fix for calib vectors"""
+        channel_id = np.array([0,1,4,5,8,18,22,23,26,27,30])
+        coeff_blr = np.array([1.61,1.62,1.61,1.61,1.61,
+                          0.8,0.8,0.8,0.8,0.8,1.60,
+                          1.0]) * 0.001
+        coeff_c = np.array([2.94,2.75,3.09,2.81,2.88,
+                        1.,1.,1.,1.,1.,2.76,
+                        1.0]) * 1e-6
+        adc_to_pes = np.array([25.17,22.15,33.57,23.88,21.55,
+                           26.49,25.39,27.74,23.78,20.83,26.56,
+                           0.])
+        pmt_active = list(range(11))
 
-    main.add_figure('PMT_rms',plot_xy(P.channel_id, rms))
-    main.add_figure('Calibrated_SUM',
-                plot_signal_vs_time_mus(csum, t_min=0, t_max=1300, signal_min=-5, signal_max=60))
-    main.add_figure('Calibrated_SUM_S1',
-                plot_signal_vs_time_mus(csum, t_min=0, t_max=640, signal_min=-2, signal_max=10))
-    main.add_figure('Calibrated_SUM_S2',
-                plot_signal_vs_time_mus(csum, t_min=640, t_max=660, signal_min=-2, signal_max=100))
-    main.add_figure('Calibrated_PMT_S1',
-                plot_pmt_signals_vs_time_mus(CAL_PMT,
-                                             P.pmt_active,
-                                             t_min      = 0,
-                                             t_max      = 640,
-                                             signal_min =  -2,
-                                             signal_max =  2))
-    if len(S1) > 0:
-        main.add_figure('S1', plot_s12(S1))
-    if len(S2) > 0:
-        main.add_figure('S2', plot_s12(S2))
-    main.add_figure('S1p_t',hist_1d(S12t, xlo=650*units.mus, xhi=1300*units.mus))
-    main.add_figure('S1p_l',hist_1d(S12l, xlo=0, xhi=20))
-    main.add_figure('S1p_e',hist_1d(S12e, xlo=0, xhi=10))
-    pmf.scan_s2si_map(S2Si)
+        DataSiPM = load_db.DataSiPM()
+        self.P   = CalibVectors(channel_id = channel_id,
+                                coeff_blr  = coeff_blr,
+                                coeff_c    = coeff_c,
+                                adc_to_pes_pmt = adc_to_pes,
+                                adc_to_pes_sipm = DataSiPM.adc_to_pes.values,
+                                pmt_active  = pmt_active)
+
+
+    def calibrated_sum(self, event):
+        """Compute calibrated sums (with/out) MAU."""
+        self.RWF = self.pmtrwf[event]
+        self.CWF = blr.deconv_pmt(self.RWF,
+                             self.P.coeff_c,
+                             self.P.coeff_blr,
+                             n_baseline  = self.D.n_baseline,
+                             thr_trigger = self.D.thr_trigger)
+
+
+        self.csum, self.csum_mau = cpf.calibrated_pmt_sum(self.CWF,
+                                                self.P.adc_to_pes_pmt,
+                                                pmt_active = self.P.pmt_active,
+                                                n_MAU      = 100,
+                                                thr_MAU    = self.thr.thr_MAU)
+
+    def find_s1(self, event):
+        """Compute S1."""
+        s1_ene, s1_indx = cpf.wfzs(self.csum_mau, threshold  =self.thr.thr_s1)
+        self.S1         = cpf.find_S12(s1_ene, s1_indx, **self.s1par._asdict())
+        if self.verbose:
+            print_s12(self.S1)
+
+    def find_s2(self, event):
+        """Compute S2."""
+        s2_ene, s2_indx = cpf.wfzs(self.csum, threshold=self.thr.thr_s2)
+        self.S2         = cpf.find_S12(s2_ene, s2_indx, **self.s2par._asdict())
+        if self.verbose:
+            print_s12(self.S2)
+
+    def find_s2si(self, event):
+        """Compute S2Si"""
+
+        sipm = cpf.signal_sipm(self.sipmrwf[event], self.P.adc_to_pes_sipm,
+                               thr=self.thr.thr_sipm, n_MAU=100)
+        SIPM = cpf.select_sipm(sipm)
+        self.S2Si = pf.sipm_s2_dict(SIPM, self.S2, thr=self.thr.thr_SIPM)
+        if self.verbose:
+            print_s2si(self.S2Si)
+
+    def s1_features(self, event):
+        """Add S1 features."""
+        for i in self.S1:
+            if self.verbose:
+                print('S1: adding features for peak number {}'.format(i))
+        self.s1f.add_features(event, self.S1, peak_number=i)
+
+    def s2_features(self, event):
+        """Add S2 features."""
+        for i in self.S2:
+            if self.verbose:
+                print('S2: adding features for peak number {}'.format(i))
+        self.s2f.add_features(event, self.S2, peak_number=i)
