@@ -69,16 +69,18 @@ class S12F:
         self.etot_.append(etot)
         self.er_.append(er)
 
-    def width(self):
-        return np.array(self.width_)
+    def event(self):
+        return np.array(self.event_)
+    def peak(self):
+        return np.array(self.peak_)
     def width(self):
         return np.array(self.width_)
     def tpeak(self):
         return np.array(self.tpeak_)
     def tmin(self):
-        return np.array(self.tmin)
+        return np.array(self.tmin_)
     def tmax(self):
-        return np.array(self.tmax)
+        return np.array(self.tmax_)
     def etot(self):
         return np.array(self.etot_)
     def emax(self):
@@ -96,15 +98,15 @@ class S12F:
                  etot (pes)  = {}
                  emax (pes)  = {}
                  er          = {})
-        """.format(self.event, self.peak,
-                   np.array(self.width)/units.mus,
-                   np.array(self.tmin)/units.mus,
-                   np.array(self.tmax)/units.mus,
-                   np.array(self.tpeak)/units.mus,
-                   np.array(self.etot),
-                   np.array(self.emax),
-                   np.array(self.er)
-                   )
+        """.format(self.event(),
+                   self.peak(),
+                   self.width()/units.mus,
+                   self.tmin()/units.mus,
+                   self.tmax()/units.mus,
+                   self.tpeak()/units.mus,
+                   self.etot(),
+                   self.emax(),
+                   self.er())
         return w
     def __repr__(self):
         return self.__str__()
