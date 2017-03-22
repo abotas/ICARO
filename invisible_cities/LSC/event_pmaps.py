@@ -32,16 +32,15 @@ class S12F:
 
     def __init__(self):
         """Define event lists."""
-        self.event = []
-        self.peak = []
-        self.w    = []
-        self.tmin = []
-        self.tmax = []
-        self.tpeak = []
-        self.emax = []
-        self.etot = []
-        self.er   = []
-        self.nm   = [] # number of matches
+        self.event_ = []
+        self.peak_ = []
+        self.width_ = []
+        self.tmin_ = []
+        self.tmax_ = []
+        self.tpeak_ = []
+        self.emax_ = []
+        self.etot_ = []
+        self.er_   = []
 
     def add_features(self, event, S12, peak_number=0):
         """Add event features."""
@@ -49,28 +48,43 @@ class S12F:
         t = S12[peak_number][0]
         E = S12[peak_number][1]
 
-        tmin = t[0]
-        tmax = t[-1]
-        i_t = loc_elem_1d(E, emax)
-        tpeak = t[i_t]
-
         emax = np.max(E)
         etot = np.sum(E)
         er = 9e+9
         if etot > 0:
             er = emax/etot
-        self.event.append(event)
-        self.peak.append(peak_number)
-        self.w.append(tmax - tmin)
-        self.tmin.append(tmin)
-        self.tmax.append(tmax)
-        self.tpeak.append(tpeak)
-        self.emax.append(emax)
-        self.etot.append(etot)
-        self.er.append(er)
 
-    def add_number_of_matches(self, nm):
-        self.nm.append(nm)
+        tmin = t[0]
+        tmax = t[-1]
+        i_t = loc_elem_1d(E, emax)
+        tpeak = t[i_t]
+
+        self.event_.append(event)
+        self.peak_.append(peak_number)
+        self.width_.append(tmax - tmin)
+        self.tmin_.append(tmin)
+        self.tmax_.append(tmax)
+        self.tpeak_.append(tpeak)
+        self.emax_.append(emax)
+        self.etot_.append(etot)
+        self.er_.append(er)
+
+    def width(self):
+        return np.array(self.width_)
+    def width(self):
+        return np.array(self.width_)
+    def tpeak(self):
+        return np.array(self.tpeak_)
+    def tmin(self):
+        return np.array(self.tmin)
+    def tmax(self):
+        return np.array(self.tmax)
+    def etot(self):
+        return np.array(self.etot_)
+    def emax(self):
+        return np.array(self.emax_)
+    def emax_over_etot(self):
+        return np.array(self.er_)
 
     def __str__(self):
         w = """ (event  ={}
@@ -80,7 +94,7 @@ class S12F:
                  tmax  (mus) = {}
                  tpeak (mus) = {}
                  etot (pes)  = {}
-                 epeak (pes) = {}
+                 emax (pes)  = {}
                  er          = {})
         """.format(self.event, self.peak,
                    np.array(self.width)/units.mus,
@@ -88,7 +102,7 @@ class S12F:
                    np.array(self.tmax)/units.mus,
                    np.array(self.tpeak)/units.mus,
                    np.array(self.etot),
-                   np.array(self.epeak),
+                   np.array(self.emax),
                    np.array(self.er)
                    )
         return w
@@ -140,8 +154,6 @@ def print_s2si(S2Si):
         for sipm, e_array in sipm_set.items():
             print('sipm number = {}, energy = {}'.format(sipm,
                                                          np.sum(e_array)))
-def print_s12f(s12f):
-    """Print the """
 
 class EventPmaps:
     """Compute event pmaps
@@ -183,10 +195,6 @@ class EventPmaps:
         self.s1f = S12F()
         self.s2f = S12F()
         self.verbose = verbose
-
-    @property
-    def calib_vectors(self):
-        return self.P
 
 
     def _calib_vectors(self):
@@ -232,13 +240,18 @@ class EventPmaps:
         """Compute S1."""
         s1_ene, s1_indx = cpf.wfzs(self.csum_mau, threshold  =self.thr.thr_s1)
         self.S1         = cpf.find_S12(s1_ene, s1_indx, **self.s1par._asdict())
+        for peak in self.S1:
+            self.s1f.add_features(event, self.S1, peak_number=peak)
         if self.verbose:
             print_s12(self.S1)
+
 
     def find_s2(self, event):
         """Compute S2."""
         s2_ene, s2_indx = cpf.wfzs(self.csum, threshold=self.thr.thr_s2)
         self.S2         = cpf.find_S12(s2_ene, s2_indx, **self.s2par._asdict())
+        for peak in self.S2:
+            self.s2f.add_features(event, self.S2, peak_number=peak)
         if self.verbose:
             print_s12(self.S2)
 
