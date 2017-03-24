@@ -14,194 +14,14 @@ from invisible_cities.reco.params import S12Params, ThresholdParams,\
                 CalibratedSum, PMaps, CalibVectors, DeconvParams
 from collections import namedtuple
 from enum import Enum
+from kr_base import S12F
+from s12_functions import  print_s12, print_s2si, compare_S1
 
 KrConditions = Enum('KrConditions',
   'csum_is_zero s1_multiplicity s2_multiplicity si_multiplicity')
 KrSelection = namedtuple('KrSelection',
                's1_multiplicity s2_multiplicity si_multiplicity')
 
-class KrBox:
-    """Container of krypton events"""
-    def __init__(self, run_number):
-        self.run_number = run_number
-        self.event_ = []
-        self.s1f_ = S12F()
-        self.s2f_ = S12F()
-        self.qs1_ = []
-        self.qs2_ = []
-        self.drift_time_ = []
-        self.X_ = []
-        self.Y_ = []
-        self.Z_ = []
-        self.R_ = []
-        self.Phi_ = []
-
-    def add_position(self, X, Y, Z, R, Phi, drift_time):
-        self.X_.append(X)
-        self.Y_.append(Y)
-        self.Z_.append(Z)
-        self.R_.append(R)
-        self.Phi_.append(Phi)
-        self.drift_time_.append(drift_time)
-
-    def event(self):
-        return np.array(self.event_)
-    def s1f(self):
-        return np.array(self.s1f)
-    def s2f(self):
-        return np.array(self.s2f)
-    def qs1(self):
-        return np.array(self.qs1)
-    def qs2(self):
-        return np.array(self.qs2)
-    def drift_time(self):
-        return np.array(self.drift_time_)
-    def X(self):
-        return np.array(self.X_)
-    def Y(self):
-        return np.array(self.Y_)
-    def Z(self):
-        return np.array(self.Z_)
-    def R(self):
-        return np.array(self.R_)
-    def Phi(self):
-        return np.array(self.Phi_)
-
-
-class S12F:
-    """
-    Defines the global features of an S12 peak, namely:
-    1) peak start (tmin), end (tmax) and width
-    2) peak maximum (both energy and time)
-    3) energy total
-    4) ratio peak/total energy
-    """
-
-    def __init__(self):
-        """Define event lists."""
-        self.event_ = []
-        self.peak_ = []
-        self.width_ = []
-        self.tmin_ = []
-        self.tmax_ = []
-        self.tpeak_ = []
-        self.emax_ = []
-        self.etot_ = []
-        self.er_   = []
-
-    def add_features(self, event, S12, peak_number=0):
-        """Add event features."""
-
-        t = S12[peak_number][0]
-        E = S12[peak_number][1]
-
-        emax = np.max(E)
-        etot = np.sum(E)
-        er = 9e+9
-        if etot > 0:
-            er = emax/etot
-
-        tmin = t[0]
-        tmax = t[-1]
-        i_t = loc_elem_1d(E, emax)
-        tpeak = t[i_t]
-
-        self.event_.append(event)
-        self.peak_.append(peak_number)
-        self.width_.append(tmax - tmin)
-        self.tmin_.append(tmin)
-        self.tmax_.append(tmax)
-        self.tpeak_.append(tpeak)
-        self.emax_.append(emax)
-        self.etot_.append(etot)
-        self.er_.append(er)
-
-    def event(self):
-        return np.array(self.event_)
-    def peak(self):
-        return np.array(self.peak_)
-    def width(self):
-        return np.array(self.width_)
-    def tpeak(self):
-        return np.array(self.tpeak_)
-    def tmin(self):
-        return np.array(self.tmin_)
-    def tmax(self):
-        return np.array(self.tmax_)
-    def etot(self):
-        return np.array(self.etot_)
-    def emax(self):
-        return np.array(self.emax_)
-    def emax_over_etot(self):
-        return np.array(self.er_)
-
-    def __str__(self):
-        w = """ (event  ={}
-                 peak = {}
-                 width (mus) = {}
-                 tmin  (mus) = {}
-                 tmax  (mus) = {}
-                 tpeak (mus) = {}
-                 etot (pes)  = {}
-                 emax (pes)  = {}
-                 er          = {})
-        """.format(self.event(),
-                   self.peak(),
-                   self.width()/units.mus,
-                   self.tmin()/units.mus,
-                   self.tmax()/units.mus,
-                   self.tpeak()/units.mus,
-                   self.etot(),
-                   self.emax(),
-                   self.er())
-        return w
-    def __repr__(self):
-        return self.__str__()
-
-def compare_S1(S1, PMT_S1, peak=0, tol=0.5*units.mus):
-    """Compare sum S1 with S1 in individual PMT
-
-    input:
-    S1 computed with the sum
-    PMT_S1 computed with individual PMTs.
-    tol is the matching tolerance.
-
-    Return number of matches
-
-    """
-    n_match_s1 = 0
-    t = S1[peak][0]
-    E = S1[peak][1]
-    for pmt in PMT_S1:
-        if len (PMT_S1[pmt]) > 0:
-            for peak, (t2,E2) in PMT_S1[pmt].items():
-                diff = abs(t2[0] - t[0])
-                if diff < tol:
-                    n_match_s1 +=1
-                    break  # if one peak is matched look no further
-    return n_match_s1
-
-
-def print_s12(S12):
-    """Print peaks of input S12.
-
-    S12 is a dictionary
-    S12[i] for i in keys() are the S12 peaks
-    """
-    print('number of peaks = {}'.format(len(S12)))
-    for i in S12:
-        print('S12 number = {}, samples = {} sum in pes ={}'
-              .format(i, len(S12[i][0]), np.sum(S12[i][1])))
-        print('time vector (mus) = {}'.format(S12[i][0]/units.mus))
-        print('energy vector (pes) = {}'.format(S12[i][1]/units.pes))
-
-def print_s2si(S2Si):
-    """Scan the S2Si objects."""
-    for peak, sipm_set in S2Si.items():
-        print('S2Si for peak number = {}'.format(peak))
-        for sipm, e_array in sipm_set.items():
-            print('sipm number = {}, energy = {}'.format(sipm,
-                                                         np.sum(e_array)))
 
 class EventPmaps:
     """Compute event pmaps
@@ -229,7 +49,9 @@ class EventPmaps:
                           ('ThresholdParams',
                           'thr_s1 thr_s2 thr_MAU thr_sipm thr_SIPM')
         verbose       : to make it talk.
+
         """
+
         self.run_number = run_number
         DataPMT = load_db.DataPMT(run_number)
         DataSiPM = load_db.DataSiPM(run_number)

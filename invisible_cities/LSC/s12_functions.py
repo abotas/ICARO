@@ -20,6 +20,16 @@ def print_s12(S12):
         print('time vector (mus) = {}'.format(S12[i][0]/units.mus))
         print('energy vector (pes) = {}'.format(S12[i][1]/units.pes))
 
+
+def print_s2si(S2Si):
+    """Scan the S2Si objects."""
+    for peak, sipm_set in S2Si.items():
+        print('S2Si for peak number = {}'.format(peak))
+        for sipm, e_array in sipm_set.items():
+            print('sipm number = {}, energy = {}'.format(sipm,
+                                                         np.sum(e_array)))
+
+
 def compare_S1(S1, PMT_S1, peak=0, tol=0.5*units.mus):
     """Compare sum S1 with S1 in individual PMT
 
