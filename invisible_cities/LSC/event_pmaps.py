@@ -11,15 +11,62 @@ import invisible_cities.reco.peak_functions as pf
 from   invisible_cities.core.system_of_units_c import units
 from invisible_cities.core.core_functions import loc_elem_1d
 from invisible_cities.reco.params import S12Params, ThresholdParams,\
-                                         CalibratedSum, PMaps
+                CalibratedSum, PMaps, CalibVectors, DeconvParams
 from collections import namedtuple
 from enum import Enum
 
-EventPmaps = Enum('EventPmaps', 'not_s1 not_s2 s1_not_1 s2_not_1')
-DeconvParams = namedtuple('DeconvParams', 'n_baseline thr_trigger')
-S12Features = namedtuple('S12Features', 's1f s2f')
-CalibVectors = namedtuple('CalibVectors',
-    'channel_id coeff_blr coeff_c adc_to_pes_pmt adc_to_pes_sipm pmt_active')
+KrConditions = Enum('KrConditions',
+  'csum_is_zero s1_multiplicity s2_multiplicity si_multiplicity')
+KrSelection = namedtuple('KrSelection',
+               's1_multiplicity s2_multiplicity si_multiplicity')
+
+class KrBox:
+    """Container of krypton events"""
+    def __init__(self, run_number):
+        self.run_number = run_number
+        self.event_ = []
+        self.s1f_ = S12F()
+        self.s2f_ = S12F()
+        self.qs1_ = []
+        self.qs2_ = []
+        self.drift_time_ = []
+        self.X_ = []
+        self.Y_ = []
+        self.Z_ = []
+        self.R_ = []
+        self.Phi_ = []
+
+    def add_position(self, X, Y, Z, R, Phi, drift_time):
+        self.X_.append(X)
+        self.Y_.append(Y)
+        self.Z_.append(Z)
+        self.R_.append(R)
+        self.Phi_.append(Phi)
+        self.drift_time_.append(drift_time)
+
+    def event(self):
+        return np.array(self.event_)
+    def s1f(self):
+        return np.array(self.s1f)
+    def s2f(self):
+        return np.array(self.s2f)
+    def qs1(self):
+        return np.array(self.qs1)
+    def qs2(self):
+        return np.array(self.qs2)
+    def drift_time(self):
+        return np.array(self.drift_time_)
+    def X(self):
+        return np.array(self.X_)
+    def Y(self):
+        return np.array(self.Y_)
+    def Z(self):
+        return np.array(self.Z_)
+    def R(self):
+        return np.array(self.R_)
+    def Phi(self):
+        return np.array(self.Phi_)
+
 
 class S12F:
     """
@@ -111,7 +158,6 @@ class S12F:
     def __repr__(self):
         return self.__str__()
 
-
 def compare_S1(S1, PMT_S1, peak=0, tol=0.5*units.mus):
     """Compare sum S1 with S1 in individual PMT
 
@@ -169,7 +215,7 @@ class EventPmaps:
 
     """
 
-    def __init__(self, pmtrwf, sipmrwf,
+    def __init__(self, run_number, pmtrwf, sipmrwf,
                  s1par, s2par, thr,
                  verbose=True):
         """
@@ -184,7 +230,22 @@ class EventPmaps:
                           'thr_s1 thr_s2 thr_MAU thr_sipm thr_SIPM')
         verbose       : to make it talk.
         """
-        self._calib_vectors()
+        self.run_number = run_number
+        DataPMT = load_db.DataPMT(run_number)
+        DataSiPM = load_db.DataSiPM(run_number)
+        self.xs = DataSiPM.X.values
+        self.ys = DataSiPM.Y.values
+
+
+        self.P = CalibVectors(channel_id = DataPMT.ChannelID.values,
+                              coeff_blr = abs(DataPMT.coeff_blr   .values),
+                              coeff_c = abs(DataPMT.coeff_c   .values),
+                              adc_to_pes = abs(DataPMT.adc_to_pes.values),
+                              adc_to_pes_sipm = abs(DataSiPM.adc_to_pes.values),
+                              pmt_active = np.nonzero(
+                                           DataPMT.Active.values)[0].tolist())
+
+        #self._calib_vectors()
         self.pmtrwf        = pmtrwf
         self.sipmrwf       = sipmrwf
         self.D             = DeconvParams(n_baseline = 48000,
@@ -196,47 +257,27 @@ class EventPmaps:
         # instances of s12fF
         self.s1f = S12F()
         self.s2f = S12F()
+
         self.verbose = verbose
-
-
-    def _calib_vectors(self):
-        """Provisional fix for calib vectors"""
-        channel_id = np.array([0,1,4,5,8,18,22,23,26,27,30])
-        coeff_blr = np.array([1.61,1.62,1.61,1.61,1.61,
-                          0.8,0.8,0.8,0.8,0.8,1.60,
-                          1.0]) * 0.001
-        coeff_c = np.array([2.94,2.75,3.09,2.81,2.88,
-                        1.,1.,1.,1.,1.,2.76,
-                        1.0]) * 1e-6
-        adc_to_pes = np.array([25.17,22.15,33.57,23.88,21.55,
-                           26.49,25.39,27.74,23.78,20.83,26.56,
-                           0.])
-        pmt_active = list(range(11))
-
-        DataSiPM = load_db.DataSiPM()
-        self.P   = CalibVectors(channel_id = channel_id,
-                                coeff_blr  = coeff_blr,
-                                coeff_c    = coeff_c,
-                                adc_to_pes_pmt = adc_to_pes,
-                                adc_to_pes_sipm = DataSiPM.adc_to_pes.values,
-                                pmt_active  = pmt_active)
-
 
     def calibrated_sum(self, event):
         """Compute calibrated sums (with/out) MAU."""
         self.RWF = self.pmtrwf[event]
+
         self.CWF = blr.deconv_pmt(self.RWF,
                              self.P.coeff_c,
                              self.P.coeff_blr,
+                             self.P.pmt_active,
                              n_baseline  = self.D.n_baseline,
                              thr_trigger = self.D.thr_trigger)
 
 
         self.csum, self.csum_mau = cpf.calibrated_pmt_sum(self.CWF,
-                                                self.P.adc_to_pes_pmt,
+                                                self.P.adc_to_pes,
                                                 pmt_active = self.P.pmt_active,
                                                 n_MAU      = 100,
                                                 thr_MAU    = self.thr.thr_MAU)
+        return np.sum(csum)
 
     def find_s1(self, event):
         """Compute S1."""
@@ -247,6 +288,7 @@ class EventPmaps:
         if self.verbose:
             print_s12(self.S1)
 
+        return len(S1)
 
     def find_s2(self, event):
         """Compute S2."""
@@ -256,6 +298,8 @@ class EventPmaps:
             self.s2f.add_features(event, self.S2, peak_number=peak)
         if self.verbose:
             print_s12(self.S2)
+
+        return len(S2)
 
     def find_s2si(self, event):
         """Compute S2Si"""
@@ -267,16 +311,18 @@ class EventPmaps:
         if self.verbose:
             print_s2si(self.S2Si)
 
-    def s1_features(self, event):
-        """Add S1 features."""
-        for i in self.S1:
-            if self.verbose:
-                print('S1: adding features for peak number {}'.format(i))
-        self.s1f.add_features(event, self.S1, peak_number=i)
+        return len(S2Si)
 
-    def s2_features(self, event):
-        """Add S2 features."""
-        for i in self.S2:
-            if self.verbose:
-                print('S2: adding features for peak number {}'.format(i))
-        self.s2f.add_features(event, self.S2, peak_number=i)
+    def charge_and_position(self, peak_number=0):
+        """
+        Charge and position from S2Si
+        """
+        s2si = self.S2Si[peak_number]
+        xsipm = []
+        ysipm = []
+        Q = []
+        for key, value in s2si.items():
+            xsipm.append(xs[key])
+            ysipm.append(ys[key])
+            Q.append(np.sum(value))
+        return np.array(xsipm), np.array(ysipm), np.array(Q)
