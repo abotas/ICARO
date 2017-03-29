@@ -52,3 +52,28 @@ def compare_S1(S1, PMT_S1, peak=0, tol=0.5*units.mus):
                     n_match_s1 +=1
                     break  # if one peak is matched look no further
     return n_match_s1
+
+
+def compare_S1_ext(S1, PMT_S1, peak=0, tol=0.5*units.mus):
+    """Compare sum S1 with S1 in individual PMT
+
+    input:
+    S1 computed with the sum
+    PMT_S1 computed with individual PMTs.
+    tol is the matching tolerance.
+
+    Return number of matches
+
+    """
+    n_match_s1 = 0
+    t = S1[peak][0]
+    E = S1[peak][1]
+    multiplicity = np.zeros((len(PMT_S1),), dtype=np.int8)
+    for pmt in PMT_S1:
+        if len (PMT_S1[pmt]) > 0:
+            for peak, (t2,E2) in PMT_S1[pmt].items():
+                diff = abs(t2[0] - t[0])
+                if diff < tol:
+                    multiplicity[pmt] += 1
+                    break  # if one peak is matched look no further
+    return multiplicity

@@ -15,7 +15,7 @@ from invisible_cities.reco.params import S12Params, ThresholdParams,\
 from collections import namedtuple
 from enum import Enum
 from kr_base import S12F
-from s12_functions import  print_s12, print_s2si, compare_S1
+from s12_functions import  print_s12, print_s2si, compare_S1, compare_S1_ext
 
 KrConditions = Enum('KrConditions',
   'csum_is_zero s1_multiplicity s2_multiplicity si_multiplicity')
@@ -84,6 +84,7 @@ class EventPmaps:
 
     def calibrated_sum(self, event):
         """Compute calibrated sums (with/out) MAU."""
+        
         self.RWF = self.pmtrwf[event]
 
         self.CWF = blr.deconv_pmt(self.RWF,
@@ -92,14 +93,23 @@ class EventPmaps:
                              self.P.pmt_active,
                              n_baseline  = self.D.n_baseline,
                              thr_trigger = self.D.thr_trigger)
-
+        
+        self.CAL_PMT, self.CAL_PMT_MAU = cpf.calibrated_pmt_mau(
+            self.CWF,
+            self.P.adc_to_pes,
+            pmt_active = self.P.pmt_active,
+            n_MAU   = 100,
+            thr_MAU =   3)
 
         self.csum, self.csum_mau = cpf.calibrated_pmt_sum(self.CWF,
                                                 self.P.adc_to_pes,
                                                 pmt_active = self.P.pmt_active,
                                                 n_MAU      = 100,
                                                 thr_MAU    = self.thr.thr_MAU)
-        return np.sum(csum)
+        return np.sum(self.csum)       
+        
+        
+
 
     def find_s1(self, event):
         """Compute S1."""
@@ -110,7 +120,7 @@ class EventPmaps:
         if self.verbose:
             print_s12(self.S1)
 
-        return len(S1)
+        return len(self.S1)
 
     def find_s2(self, event):
         """Compute S2."""
@@ -121,7 +131,7 @@ class EventPmaps:
         if self.verbose:
             print_s12(self.S2)
 
-        return len(S2)
+        return len(self.S2)
 
     def find_s2si(self, event):
         """Compute S2Si"""
@@ -133,7 +143,7 @@ class EventPmaps:
         if self.verbose:
             print_s2si(self.S2Si)
 
-        return len(S2Si)
+        return len(self.S2Si)
 
     def charge_and_position(self, peak_number=0):
         """

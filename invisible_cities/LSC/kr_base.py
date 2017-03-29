@@ -1,8 +1,11 @@
 import tables as tb
+import numpy as np
 import invisible_cities.reco.tbl_functions as tbl
 import invisible_cities.reco.nh5 as table_formats
-from invisible_cities.reco.pmap_io import event_writer, run_writer,
-     _make_run_event_tables
+from invisible_cities.reco.pmap_io import event_writer, run_writer
+
+from invisible_cities.core.core_functions import loc_elem_1d
+#     _make_run_event_tables
 from collections import namedtuple
 
 class S12Ft(tb.IsDescription):
