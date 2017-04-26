@@ -93,12 +93,13 @@ class EventPmaps:
 
         return np.sum(self.csum)
 
-    def calibrated_sipm(self, event, sipmrwf):
+    def calibrated_sipm(self, event, sipmrwf, calwf=False):
         """Calibrated SiPMs"""
 
         sipm = cpf.signal_sipm(sipmrwf[event], self.P.adc_to_pes_sipm,
                                thr=self.thr.thr_sipm, n_MAU=100)
         self.SIPM = cpf.select_sipm(sipm)
+        if calwf: self.sipm = sipm
         return len(self.SIPM)
 
     def find_s1(self):
